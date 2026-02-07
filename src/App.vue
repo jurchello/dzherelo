@@ -87,6 +87,8 @@ const people = ref<PersonRow[]>([]);
 
 const isSaving = ref(false);
 const isLoading = ref(false);
+const backendAvailable = ref(false);
+let tempId = 0;
 
 const buildPersonRow = (person: ApiPerson): PersonRow => ({
   id: person.id,
@@ -97,6 +99,20 @@ const buildPersonRow = (person: ApiPerson): PersonRow => ({
   place: person.birth_place || "Без місця",
   source: person.notes ? "Є примітка" : "Без приміток",
 });
+
+const buildRowFromForm = (): PersonRow => {
+  tempId += 1;
+  const name = [newPerson.lastName, newPerson.firstName, newPerson.middleName]
+    .filter(Boolean)
+    .join(" ");
+  return {
+    id: -tempId,
+    name: name || "Без імені",
+    life: newPerson.birthDate ? `Народж.: ${newPerson.birthDate}` : "Без дати",
+    place: newPerson.birthPlace || "Без місця",
+    source: newPerson.notes ? "Є примітка" : "Без приміток",
+  };
+};
 
 const resetForm = () => {
   newPerson.lastName = "";
@@ -119,6 +135,10 @@ const resetForm = () => {
 const loadPeople = async () => {
   isLoading.value = true;
   try {
+    if (!backendAvailable.value) {
+      people.value = [];
+      return;
+    }
     const result = await invoke<ApiPerson[]>("list_people");
     people.value = result.map(buildPersonRow);
   } catch (error) {
@@ -132,6 +152,12 @@ const savePerson = async () => {
   if (isSaving.value) return;
   isSaving.value = true;
   try {
+    if (!backendAvailable.value) {
+      people.value = [buildRowFromForm(), ...people.value];
+      resetForm();
+      showAdvanced.value = false;
+      return;
+    }
     const payload = {
       last_name: newPerson.lastName,
       first_name: newPerson.firstName,
@@ -164,7 +190,13 @@ const activeTabLabel = computed(
   () => tabs.find((tab) => tab.id === activeTab.value)?.label ?? "",
 );
 
-onMounted(loadPeople);
+onMounted(() => {
+  backendAvailable.value =
+    typeof window !== "undefined" &&
+    (window as { __TAURI_INTERNALS__?: { invoke?: unknown } })
+      .__TAURI_INTERNALS__?.invoke !== undefined;
+  loadPeople();
+});
 </script>
 
 <template>
@@ -333,6 +365,10 @@ onMounted(loadPeople);
 
           <div class="list-meta">
             Показано: <strong>{{ activeTabLabel }}</strong>
+          </div>
+          <div v-if="!backendAvailable" class="list-empty">
+            Запущено у браузері. Для збереження у БД запусти через
+            <strong>npm run tauri dev</strong>.
           </div>
 
           <div v-if="isLoading" class="list-empty">

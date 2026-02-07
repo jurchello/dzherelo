@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 
 type NavItem = {
@@ -64,6 +64,11 @@ const tabs: TabItem[] = [
 const activeNav = ref<NavItem["id"]>("persons");
 const activeTab = ref<TabItem["id"]>("all");
 const showAdvanced = ref(false);
+const showModal = ref(false);
+const modalPosition = reactive({ x: 0, y: 0 });
+const isDragging = ref(false);
+const dragOffset = reactive({ x: 0, y: 0 });
+const modalWidth = 720;
 
 const newPerson = reactive({
   lastName: "",
@@ -190,12 +195,54 @@ const activeTabLabel = computed(
   () => tabs.find((tab) => tab.id === activeTab.value)?.label ?? "",
 );
 
+const openModal = () => {
+  if (typeof window !== "undefined") {
+    const centeredX = Math.max(24, (window.innerWidth - modalWidth) / 2);
+    modalPosition.x = Math.floor(centeredX);
+    modalPosition.y = 64;
+  }
+  showModal.value = true;
+};
+
+const closeModal = () => {
+  showModal.value = false;
+};
+
+const startDrag = (event: MouseEvent) => {
+  if (!showModal.value) return;
+  isDragging.value = true;
+  dragOffset.x = event.clientX - modalPosition.x;
+  dragOffset.y = event.clientY - modalPosition.y;
+  event.preventDefault();
+};
+
+const onDrag = (event: MouseEvent) => {
+  if (!isDragging.value) return;
+  modalPosition.x = Math.max(12, event.clientX - dragOffset.x);
+  modalPosition.y = Math.max(12, event.clientY - dragOffset.y);
+};
+
+const stopDrag = () => {
+  isDragging.value = false;
+};
+
+const modalStyle = computed(() => ({
+  transform: `translate(${modalPosition.x}px, ${modalPosition.y}px)`,
+}));
+
 onMounted(() => {
   backendAvailable.value =
     typeof window !== "undefined" &&
     (window as { __TAURI_INTERNALS__?: { invoke?: unknown } })
       .__TAURI_INTERNALS__?.invoke !== undefined;
   loadPeople();
+  window.addEventListener("mousemove", onDrag);
+  window.addEventListener("mouseup", stopDrag);
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener("mousemove", onDrag);
+  window.removeEventListener("mouseup", stopDrag);
 });
 </script>
 
@@ -220,7 +267,6 @@ onMounted(() => {
           @click="activeNav = item.id"
         >
           <span class="nav-label">{{ item.label }}</span>
-          <span v-if="item.disabled" class="nav-badge">скоро</span>
         </button>
       </nav>
 
@@ -240,23 +286,88 @@ onMounted(() => {
         </div>
         <div class="topbar-actions">
           <input class="search" placeholder="Пошук по імені, місцю, джерелу" />
-          <button class="btn primary">Нова особа</button>
+          <button class="btn primary" @click="openModal">
+            Нова особа
+          </button>
         </div>
       </header>
 
       <section class="content">
-        <div class="panel form-panel">
+        <div class="panel list-panel">
           <div class="panel-header">
             <div>
-              <h2>Швидке додавання</h2>
-              <p class="muted">
-                Основні поля — одразу. Додаткові — згорнуті.
-              </p>
+              <h2>Список осіб</h2>
+              <p class="muted">Вкладки для швидкого перемикання.</p>
             </div>
-            <button class="btn ghost" @click="showAdvanced = !showAdvanced">
+            <div class="tabs">
+              <button
+                v-for="tab in tabs"
+                :key="tab.id"
+                class="tab"
+                :class="{ active: activeTab === tab.id }"
+                @click="activeTab = tab.id"
+              >
+                {{ tab.label }}
+                <span class="tab-count">{{ tab.count }}</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="list-meta">
+            Показано: <strong>{{ activeTabLabel }}</strong>
+          </div>
+          <div v-if="!backendAvailable" class="list-empty">
+            Запущено у браузері. Для збереження у БД запусти через
+            <strong>npm run tauri dev</strong>.
+          </div>
+
+          <div v-if="isLoading" class="list-empty">
+            Завантаження списку...
+          </div>
+          <div v-else-if="people.length === 0" class="list-empty">
+            Поки що немає записів.
+          </div>
+          <div v-else class="list">
+            <div
+              v-for="(person, index) in people"
+              :key="person.id"
+              class="list-item"
+              :style="{ '--delay': `${index * 60}ms` }"
+            >
+              <div class="list-main">
+                <div class="list-name">{{ person.name }}</div>
+                <div class="list-sub">{{ person.life }} · {{ person.place }}</div>
+              </div>
+              <div class="list-source">{{ person.source }}</div>
+              <button class="btn ghost">Відкрити</button>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <div v-show="showModal" class="modal-wrapper">
+      <div class="modal" :style="modalStyle">
+        <div class="panel-header modal-handle" @mousedown="startDrag">
+          <div>
+            <h2>Нова особа</h2>
+            <p class="muted">
+              Основні поля — одразу. Додаткові — згорнуті.
+            </p>
+          </div>
+          <div class="modal-actions">
+            <button
+              class="btn ghost"
+              type="button"
+              @click="showAdvanced = !showAdvanced"
+            >
               {{ showAdvanced ? "Сховати деталі" : "Показати деталі" }}
             </button>
+            <button class="btn ghost" type="button" @click="closeModal">
+              Закрити
+            </button>
           </div>
+        </div>
 
           <form class="form-grid">
             <div class="field">
@@ -341,59 +452,7 @@ onMounted(() => {
               {{ isSaving ? "Збереження..." : "Зберегти" }}
             </button>
           </div>
-        </div>
-
-        <div class="panel list-panel">
-          <div class="panel-header">
-            <div>
-              <h2>Список осіб</h2>
-              <p class="muted">Вкладки для швидкого перемикання.</p>
-            </div>
-            <div class="tabs">
-              <button
-                v-for="tab in tabs"
-                :key="tab.id"
-                class="tab"
-                :class="{ active: activeTab === tab.id }"
-                @click="activeTab = tab.id"
-              >
-                {{ tab.label }}
-                <span class="tab-count">{{ tab.count }}</span>
-              </button>
-            </div>
-          </div>
-
-          <div class="list-meta">
-            Показано: <strong>{{ activeTabLabel }}</strong>
-          </div>
-          <div v-if="!backendAvailable" class="list-empty">
-            Запущено у браузері. Для збереження у БД запусти через
-            <strong>npm run tauri dev</strong>.
-          </div>
-
-          <div v-if="isLoading" class="list-empty">
-            Завантаження списку...
-          </div>
-          <div v-else-if="people.length === 0" class="list-empty">
-            Поки що немає записів.
-          </div>
-          <div v-else class="list">
-            <div
-              v-for="(person, index) in people"
-              :key="person.id"
-              class="list-item"
-              :style="{ '--delay': `${index * 60}ms` }"
-            >
-              <div class="list-main">
-                <div class="list-name">{{ person.name }}</div>
-                <div class="list-sub">{{ person.life }} · {{ person.place }}</div>
-              </div>
-              <div class="list-source">{{ person.source }}</div>
-              <button class="btn ghost">Відкрити</button>
-            </div>
-          </div>
-        </div>
-      </section>
+      </div>
     </div>
   </div>
 </template>
@@ -402,7 +461,8 @@ onMounted(() => {
 :root {
   color-scheme: light;
   font-family: "Space Grotesk", "Manrope", "Segoe UI", sans-serif;
-  line-height: 1.5;
+  line-height: 1.35;
+  font-size: 14px;
 
   --bg: #f8f5ef;
   --bg-contrast: #efe7dc;
@@ -430,12 +490,13 @@ body {
 
 .app {
   display: grid;
-  grid-template-columns: 260px 1fr;
+  grid-template-columns: 190px 1fr;
   min-height: 100vh;
+  position: relative;
 }
 
 .sidebar {
-  padding: 28px 20px;
+  padding: 16px 12px;
   border-right: 1px solid var(--line);
   background: linear-gradient(180deg, #fff6ee 0%, #f3e8dc 100%);
   display: flex;
@@ -450,13 +511,13 @@ body {
 }
 
 .brand-mark {
-  width: 48px;
-  height: 48px;
-  border-radius: 14px;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
   background: var(--accent);
   color: #fff;
   font-weight: 700;
-  font-size: 22px;
+  font-size: 18px;
   display: grid;
   place-items: center;
   box-shadow: 0 8px 18px rgba(224, 122, 63, 0.35);
@@ -464,11 +525,11 @@ body {
 
 .brand-title {
   font-weight: 700;
-  font-size: 18px;
+  font-size: 14px;
 }
 
 .brand-sub {
-  font-size: 12px;
+  font-size: 10px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--muted);
@@ -484,8 +545,8 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 12px 14px;
-  border-radius: 12px;
+  padding: 8px 10px;
+  border-radius: 9px;
   border: 1px solid transparent;
   background: transparent;
   color: inherit;
@@ -512,8 +573,8 @@ body {
 }
 
 .nav-badge {
-  font-size: 11px;
-  padding: 2px 8px;
+  font-size: 10px;
+  padding: 2px 6px;
   border-radius: 999px;
   background: rgba(224, 122, 63, 0.15);
   color: var(--accent-strong);
@@ -521,7 +582,7 @@ body {
 
 .sidebar-footer {
   margin-top: auto;
-  font-size: 12px;
+  font-size: 11px;
   color: var(--muted);
 }
 
@@ -542,8 +603,8 @@ body {
 .workspace {
   display: flex;
   flex-direction: column;
-  padding: 28px 36px 40px;
-  gap: 24px;
+  padding: 16px 18px 22px;
+  gap: 12px;
 }
 
 .topbar {
@@ -555,12 +616,13 @@ body {
 
 .topbar h1 {
   margin: 0 0 4px;
-  font-size: 28px;
+  font-size: 18px;
 }
 
 .subtitle {
   margin: 0;
   color: var(--muted);
+  font-size: 12px;
 }
 
 .topbar-actions {
@@ -570,23 +632,23 @@ body {
 }
 
 .search {
-  min-width: 280px;
-  padding: 10px 14px;
-  border-radius: 12px;
+  min-width: 180px;
+  padding: 6px 10px;
+  border-radius: 9px;
   border: 1px solid var(--line);
   background: #fff;
 }
 
 .content {
   display: grid;
-  grid-template-columns: minmax(300px, 380px) 1fr;
-  gap: 22px;
+  grid-template-columns: 1fr;
+  gap: 16px;
 }
 
 .panel {
   background: var(--panel);
-  border-radius: 18px;
-  padding: 22px;
+  border-radius: 14px;
+  padding: 12px;
   box-shadow: var(--shadow);
   animation: fadeIn 0.6s ease forwards;
 }
@@ -596,7 +658,7 @@ body {
   justify-content: space-between;
   align-items: center;
   gap: 18px;
-  margin-bottom: 18px;
+  margin-bottom: 8px;
 }
 
 .muted {
@@ -605,14 +667,14 @@ body {
 
 .form-grid {
   display: grid;
-  gap: 12px;
+  gap: 8px;
 }
 
 .advanced-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-  margin-top: 14px;
+  gap: 8px;
+  margin-top: 8px;
 }
 
 .field {
@@ -626,7 +688,7 @@ body {
 }
 
 label {
-  font-size: 12px;
+  font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--muted);
@@ -635,16 +697,16 @@ label {
 input,
 select,
 textarea {
-  border-radius: 12px;
+  border-radius: 9px;
   border: 1px solid var(--line);
-  padding: 10px 12px;
+  padding: 6px 8px;
   font-family: inherit;
-  font-size: 14px;
+  font-size: 12px;
   background: #fffaf6;
 }
 
 textarea {
-  min-height: 84px;
+  min-height: 60px;
   resize: vertical;
 }
 
@@ -652,16 +714,17 @@ textarea {
   display: flex;
   justify-content: flex-end;
   gap: 10px;
-  margin-top: 18px;
+  margin-top: 10px;
 }
 
 .btn {
-  border-radius: 12px;
-  padding: 10px 16px;
+  border-radius: 9px;
+  padding: 6px 10px;
   border: 1px solid transparent;
   background: #f7efe6;
   cursor: pointer;
   font-weight: 600;
+  font-size: 12px;
 }
 
 .btn.primary {
@@ -677,16 +740,16 @@ textarea {
 
 .tabs {
   display: flex;
-  gap: 8px;
+  gap: 5px;
   flex-wrap: wrap;
 }
 
 .tab {
   border-radius: 999px;
-  padding: 6px 12px;
+  padding: 4px 8px;
   border: 1px solid transparent;
   background: #f5ede5;
-  font-size: 13px;
+  font-size: 11px;
   cursor: pointer;
 }
 
@@ -702,23 +765,23 @@ textarea {
 }
 
 .list-meta {
-  margin-bottom: 12px;
+  margin-bottom: 6px;
   color: var(--muted);
-  font-size: 13px;
+  font-size: 11px;
 }
 
 .list {
   display: grid;
-  gap: 12px;
+  gap: 8px;
 }
 
 .list-item {
   display: grid;
-  grid-template-columns: 1.2fr 1fr auto;
-  gap: 12px;
+  grid-template-columns: 1.1fr 0.9fr auto;
+  gap: 8px;
   align-items: center;
-  padding: 14px 16px;
-  border-radius: 14px;
+  padding: 10px 12px;
+  border-radius: 11px;
   border: 1px solid var(--line);
   background: #fffaf6;
   animation: rise 0.5s ease forwards;
@@ -732,7 +795,7 @@ textarea {
 .list-sub,
 .list-source {
   color: var(--muted);
-  font-size: 13px;
+  font-size: 11px;
 }
 
 .list-source {
@@ -782,7 +845,7 @@ textarea {
   }
 }
 
-@media (max-width: 860px) {
+@media (max-width: 980px) {
   .app {
     grid-template-columns: 1fr;
   }
@@ -795,7 +858,7 @@ textarea {
   }
 
   .workspace {
-    padding: 20px;
+    padding: 14px;
   }
 
   .topbar {
@@ -806,5 +869,48 @@ textarea {
   .search {
     width: 100%;
   }
+}
+
+@media (max-width: 720px) {
+  .list-item {
+    grid-template-columns: 1fr;
+    text-align: left;
+  }
+
+  .list-source {
+    text-align: left;
+  }
+}
+
+.modal-wrapper {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 9999;
+}
+
+.modal {
+  width: min(720px, 100%);
+  background: var(--panel);
+  border-radius: 14px;
+  padding: 14px;
+  box-shadow: 0 22px 48px rgba(31, 22, 16, 0.3);
+  max-height: 86vh;
+  overflow: auto;
+  position: absolute;
+  left: 0;
+  top: 0;
+  pointer-events: auto;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.modal-handle {
+  cursor: move;
+  user-select: none;
 }
 </style>

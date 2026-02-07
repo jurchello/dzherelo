@@ -8,11 +8,6 @@ type NavItem = {
   disabled?: boolean;
 };
 
-type TabItem = {
-  id: string;
-  label: string;
-  count: number;
-};
 
 type ApiPerson = {
   id: number;
@@ -54,15 +49,7 @@ const navItems: NavItem[] = [
   { id: "settings", label: "Налаштування", disabled: true },
 ];
 
-const tabs: TabItem[] = [
-  { id: "all", label: "Усі", count: 128 },
-  { id: "recent", label: "Останні", count: 12 },
-  { id: "needs", label: "Потребують перевірки", count: 7 },
-  { id: "drafts", label: "Чернетки", count: 5 },
-];
-
 const activeNav = ref<NavItem["id"]>("persons");
-const activeTab = ref<TabItem["id"]>("all");
 const showAdvanced = ref(false);
 const showModal = ref(false);
 const modalPosition = reactive({ x: 0, y: 0 });
@@ -191,10 +178,6 @@ const savePerson = async () => {
   }
 };
 
-const activeTabLabel = computed(
-  () => tabs.find((tab) => tab.id === activeTab.value)?.label ?? "",
-);
-
 const openModal = () => {
   if (typeof window !== "undefined") {
     const centeredX = Math.max(24, (window.innerWidth - modalWidth) / 2);
@@ -250,10 +233,15 @@ onBeforeUnmount(() => {
   <div class="app">
     <aside class="sidebar">
       <div class="brand">
-        <div class="brand-mark">Дж</div>
+        <div class="brand-mark">
+          <img
+            class="brand-icon"
+            src="/src/assets/branding/dzherelo-logo.png"
+            alt="Джерело"
+          />
+        </div>
         <div>
-          <div class="brand-title">Джерело</div>
-          <div class="brand-sub">genealogy workspace</div>
+          <div class="brand-title"></div>
         </div>
       </div>
 
@@ -294,28 +282,6 @@ onBeforeUnmount(() => {
 
       <section class="content">
         <div class="panel list-panel">
-          <div class="panel-header">
-            <div>
-              <h2>Список осіб</h2>
-              <p class="muted">Вкладки для швидкого перемикання.</p>
-            </div>
-            <div class="tabs">
-              <button
-                v-for="tab in tabs"
-                :key="tab.id"
-                class="tab"
-                :class="{ active: activeTab === tab.id }"
-                @click="activeTab = tab.id"
-              >
-                {{ tab.label }}
-                <span class="tab-count">{{ tab.count }}</span>
-              </button>
-            </div>
-          </div>
-
-          <div class="list-meta">
-            Показано: <strong>{{ activeTabLabel }}</strong>
-          </div>
           <div v-if="!backendAvailable" class="list-empty">
             Запущено у браузері. Для збереження у БД запусти через
             <strong>npm run tauri dev</strong>.
@@ -507,13 +473,14 @@ body {
 .brand {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 14px;
 }
 
 .brand-mark {
-  width: 34px;
-  height: 34px;
-  border-radius: 10px;
+  width: 102px;
+  height: 102px;
+  border-radius: 16px;
   background: var(--accent);
   color: #fff;
   font-weight: 700;
@@ -521,6 +488,13 @@ body {
   display: grid;
   place-items: center;
   box-shadow: 0 8px 18px rgba(224, 122, 63, 0.35);
+  overflow: hidden;
+}
+
+.brand-icon {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .brand-title {
@@ -547,13 +521,15 @@ body {
   align-items: center;
   padding: 8px 10px;
   border-radius: 9px;
-  border: 1px solid transparent;
-  background: transparent;
+  border: 1px solid rgba(227, 215, 202, 0.8);
+  background: rgba(255, 255, 255, 0.4);
   color: inherit;
   font-weight: 500;
+  font-size: 12px;
   text-align: left;
   cursor: pointer;
   transition: transform 0.2s ease, background 0.2s ease, border 0.2s ease;
+  position: relative;
 }
 
 .nav-item:hover:not(.disabled) {
@@ -564,7 +540,20 @@ body {
 
 .nav-item.active {
   background: #fff;
-  border-color: rgba(224, 122, 63, 0.4);
+  border-color: rgba(224, 122, 63, 0.35);
+  box-shadow: 0 6px 14px rgba(224, 122, 63, 0.12);
+  font-weight: 600;
+}
+
+.nav-item.active::before {
+  content: "";
+  position: absolute;
+  left: -6px;
+  top: 8px;
+  bottom: 8px;
+  width: 3px;
+  border-radius: 999px;
+  background: var(--accent);
 }
 
 .nav-item.disabled {
@@ -736,38 +725,6 @@ textarea {
 .btn.ghost {
   background: transparent;
   border-color: var(--line);
-}
-
-.tabs {
-  display: flex;
-  gap: 5px;
-  flex-wrap: wrap;
-}
-
-.tab {
-  border-radius: 999px;
-  padding: 4px 8px;
-  border: 1px solid transparent;
-  background: #f5ede5;
-  font-size: 11px;
-  cursor: pointer;
-}
-
-.tab.active {
-  border-color: var(--accent);
-  background: #fff;
-  color: var(--accent-strong);
-}
-
-.tab-count {
-  margin-left: 6px;
-  font-weight: 700;
-}
-
-.list-meta {
-  margin-bottom: 6px;
-  color: var(--muted);
-  font-size: 11px;
 }
 
 .list {
